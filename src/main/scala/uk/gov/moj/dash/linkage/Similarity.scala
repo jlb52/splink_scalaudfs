@@ -381,12 +381,66 @@ object VectorCosineSimilarity {
   }
 }
 
-class BinaryHammingDistance extends UDF2[Seq[Int], Seq[Int], Int] {
-  override def call(arr1: Seq[Int], arr2: Seq[Int]): Int = {
-    arr1.zip(arr2).count { case (a, b) => a != b }
+class HammingDistance extends UDF2[String, String, Double] {
+  // Step 3: Override the `call` method to compute normalized Hamming distance between two strings
+  override def call(s1: String, s2: String): Double = {
+    if (s1.length != s2.length) {
+      throw new IllegalArgumentException("Strings must be of equal length!")
+    }
+    if (s1.isEmpty) {
+      throw new IllegalArgumentException("Strings must be of length > 0!")
+    }
+
+    val mismatches = s1.zip(s2).count { case (a, b) => a != b }
+    (s1.length - mismatches).toDouble / s1.length.toDouble
   }
 }
 
-object BinaryHammingDistance {
-  def apply(): BinaryHammingDistance = new BinaryHammingDistance()
+object HammingDistance {
+  def apply(): HammingDistance = {
+    new HammingDistance()
+  }
+}
+
+class FloatVectorCosineSimilarity extends UDF2[Seq[Float], Seq[Float], Float] {
+  // Step 3: Override the `call` method to compute cosine similarity between two embeddings
+  override def call(
+      embedding1: Seq[Float],
+      embedding2: Seq[Float]
+  ): Float = {
+    val vec1 = DenseVector(embedding1.toArray)
+    val vec2 = DenseVector(embedding2.toArray)
+
+    // Normalize the input vectors and compute the dot product
+    val cosineSimilarity = normalize(vec1).dot(normalize(vec2))
+
+    cosineSimilarity
+  }
+}
+
+object FloatVectorCosineSimilarity {
+  def apply(): FloatVectorCosineSimilarity = {
+    new FloatVectorCosineSimilarity()
+  }
+}
+
+class FloatHammingSimilarity extends UDF2[String, String, Float] {
+  // Step 3: Override the `call` method to compute normalized Hamming Similarity between two strings
+  override def call(s1: String, s2: String): Float = {
+    if (s1.length != s2.length) {
+      throw new IllegalArgumentException("Strings must be of equal length!")
+    }
+    if (s1.isEmpty) {
+      throw new IllegalArgumentException("Strings must be of length > 0!")
+    }
+
+    val mismatches = s1.zip(s2).count { case (a, b) => a != b }
+    (s1.length - mismatches).toFloat / s1.length.toFloat
+  }
+}
+
+object FloatHammingSimilarity {
+  def apply(): FloatHammingSimilarity = {
+    new FloatHammingSimilarity()
+  }
 }
