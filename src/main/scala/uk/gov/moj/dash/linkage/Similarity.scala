@@ -13,7 +13,8 @@ import org.apache.spark.sql.Row
 import org.apache.commons.text.similarity
 import org.apache.commons.codec.language
 import scala.collection.mutable
-
+import scala.math._
+import breeze.linalg.{DenseVector, normalize}
 
 class sqlEscape extends UDF1[String, String] {
   override def call(s: String): String = Literal(s).sql
@@ -24,7 +25,6 @@ object sqlEscape {
     new sqlEscape()
   }
 }
-
 
 class DoubleMetaphone extends UDF1[String, String] {
   override def call(input: String): String = {
@@ -184,7 +184,6 @@ object JaccardSimilarity {
   }
 }
 
-
 class CosineDistance extends UDF2[String, String, Double] {
   override def call(left: String, right: String): Double = {
     // This has to be instantiated here (i.e. on the worker node)
@@ -250,56 +249,53 @@ object latlongexplode {
   }
 }
 
-
 class LevDamerauDistance extends UDF2[String, String, Double] {
   override def call(left: String, right: String): Double = {
 
-
     if ((left != null) & (right != null)) {
 
-  val len1 = left.length
-  val len2 = right.length
-  val infinite = len1 + len2
+      val len1 = left.length
+      val len2 = right.length
+      val infinite = len1 + len2
 
-  // character array
-  val da = mutable.Map[Char, Int]().withDefaultValue(0)
+      // character array
+      val da = mutable.Map[Char, Int]().withDefaultValue(0)
 
-  // distance matrix
-  val score = Array.fill(len1 + 2, len2 + 2)(0)
+      // distance matrix
+      val score = Array.fill(len1 + 2, len2 + 2)(0)
 
-  score(0)(0) = infinite
-  for (i <- 0 to len1) {
-    score(i + 1)(0) = infinite
-    score(i + 1)(1) = i
-  }
-  for (i <- 0 to len2) {
-    score(0)(i + 1) = infinite
-    score(1)(i + 1) = i
-  }
-
-  for (i <- 1 to len1) {
-    var db = 0
-    for (j <- 1 to len2) {
-      val i1 = da(right(j - 1))
-      val j1 = db
-      var cost = 1
-      if (left(i - 1) == right(j - 1)) {
-        cost = 0
-        db = j
+      score(0)(0) = infinite
+      for (i <- 0 to len1) {
+        score(i + 1)(0) = infinite
+        score(i + 1)(1) = i
+      }
+      for (i <- 0 to len2) {
+        score(0)(i + 1) = infinite
+        score(1)(i + 1) = i
       }
 
-      score(i + 1)(j + 1) = List(
-        score(i)(j) + cost,
-        score(i + 1)(j) + 1,
-        score(i)(j + 1) + 1,
-        score(i1)(j1) + (i - i1 - 1) + 1 + (j - j1 - 1)
-      ).min
-    }
-    da(left(i - 1)) = i
-  }
+      for (i <- 1 to len1) {
+        var db = 0
+        for (j <- 1 to len2) {
+          val i1 = da(right(j - 1))
+          val j1 = db
+          var cost = 1
+          if (left(i - 1) == right(j - 1)) {
+            cost = 0
+            db = j
+          }
 
-  score(len1 + 1)(len2 + 1)
+          score(i + 1)(j + 1) = List(
+            score(i)(j) + cost,
+            score(i + 1)(j) + 1,
+            score(i)(j + 1) + 1,
+            score(i1)(j1) + (i - i1 - 1) + 1 + (j - j1 - 1)
+          ).min
+        }
+        da(left(i - 1)) = i
+      }
 
+      score(len1 + 1)(len2 + 1)
 
     } else {
       100.0
@@ -313,45 +309,43 @@ object LevDamerauDistance {
   }
 }
 
-
-
 class JaroSimilarity extends UDF2[String, String, Double] {
   override def call(left: String, right: String): Double = {
-    
 
     if ((left != null) & (right != null)) {
 
-       val s1_len = left.length
-        val s2_len = right.length
-        if (s1_len == 0 && s2_len == 0) return 1.0
-        val match_distance = Math.max(s1_len, s2_len) / 2 - 1
-        val s1_matches = Array.ofDim[Boolean](s1_len)
-        val s2_matches = Array.ofDim[Boolean](s2_len)
-        var matches = 0
-        for (i <- 0 until s1_len) {
-            val start = Math.max(0, i - match_distance)
-            val end = Math.min(i + match_distance + 1, s2_len)
-            start until end find { j => !s2_matches(j) && left(i) == right(j) } match {
-                case Some(j) =>
-                    s1_matches(i) = true
-                    s2_matches(j) = true
-                    matches += 1
-                case None =>
-            }
+      val s1_len = left.length
+      val s2_len = right.length
+      if (s1_len == 0 && s2_len == 0) return 1.0
+      val match_distance = Math.max(s1_len, s2_len) / 2 - 1
+      val s1_matches = Array.ofDim[Boolean](s1_len)
+      val s2_matches = Array.ofDim[Boolean](s2_len)
+      var matches = 0
+      for (i <- 0 until s1_len) {
+        val start = Math.max(0, i - match_distance)
+        val end = Math.min(i + match_distance + 1, s2_len)
+        start until end find { j =>
+          !s2_matches(j) && left(i) == right(j)
+        } match {
+          case Some(j) =>
+            s1_matches(i) = true
+            s2_matches(j) = true
+            matches += 1
+          case None =>
         }
-        if (matches == 0) return 0.0
-        var t = 0.0
-        var k = 0
-        0 until s1_len filter s1_matches foreach { i =>
-            while (!s2_matches(k)) k += 1
-            if (left(i) != right(k)) t += 0.5
-            k += 1
-        }
+      }
+      if (matches == 0) return 0.0
+      var t = 0.0
+      var k = 0
+      0 until s1_len filter s1_matches foreach { i =>
+        while (!s2_matches(k)) k += 1
+        if (left(i) != right(k)) t += 0.5
+        k += 1
+      }
 
-        val m = matches.toDouble
-        
-        (m / s1_len + m / s2_len + (m - t) / m) / 3.0
+      val m = matches.toDouble
 
+      (m / s1_len + m / s2_len + (m - t) / m) / 3.0
 
     } else {
       0.0
@@ -362,5 +356,91 @@ class JaroSimilarity extends UDF2[String, String, Double] {
 object JaroSimilarity {
   def apply(): JaroSimilarity = {
     new JaroSimilarity()
+  }
+}
+
+class VectorCosineSimilarity extends UDF2[Seq[Double], Seq[Double], Double] {
+  // Step 3: Override the `call` method to compute cosine similarity between two embeddings
+  override def call(
+      embedding1: Seq[Double],
+      embedding2: Seq[Double]
+  ): Double = {
+    val vec1 = DenseVector(embedding1.toArray)
+    val vec2 = DenseVector(embedding2.toArray)
+
+    // Normalize the input vectors and compute the dot product
+    val cosineSimilarity = normalize(vec1).dot(normalize(vec2))
+
+    cosineSimilarity
+  }
+}
+
+object VectorCosineSimilarity {
+  def apply(): VectorCosineSimilarity = {
+    new VectorCosineSimilarity()
+  }
+}
+
+class HammingDistance extends UDF2[String, String, Double] {
+  // Step 3: Override the `call` method to compute normalized Hamming distance between two strings
+  override def call(s1: String, s2: String): Double = {
+    if (s1.length != s2.length) {
+      throw new IllegalArgumentException("Strings must be of equal length!")
+    }
+    if (s1.isEmpty) {
+      throw new IllegalArgumentException("Strings must be of length > 0!")
+    }
+
+    val mismatches = s1.zip(s2).count { case (a, b) => a != b }
+    (s1.length - mismatches).toDouble / s1.length.toDouble
+  }
+}
+
+object HammingDistance {
+  def apply(): HammingDistance = {
+    new HammingDistance()
+  }
+}
+
+class FloatVectorCosineSimilarity extends UDF2[Seq[Float], Seq[Float], Float] {
+  // Step 3: Override the `call` method to compute cosine similarity between two embeddings
+  override def call(
+      embedding1: Seq[Float],
+      embedding2: Seq[Float]
+  ): Float = {
+    val vec1 = DenseVector(embedding1.toArray)
+    val vec2 = DenseVector(embedding2.toArray)
+
+    // Normalize the input vectors and compute the dot product
+    val cosineSimilarity = normalize(vec1).dot(normalize(vec2))
+
+    cosineSimilarity
+  }
+}
+
+object FloatVectorCosineSimilarity {
+  def apply(): FloatVectorCosineSimilarity = {
+    new FloatVectorCosineSimilarity()
+  }
+}
+
+class FloatHammingSimilarity extends UDF2[String, String, Float] {
+  // Step 3: Override the `call` method to compute normalized Hamming Similarity between two strings
+  override def call(s1: String, s2: String): Float = {
+    if (s1.length != s2.length) {
+      throw new IllegalArgumentException("Strings must be of equal length!")
+    }
+    if (s1.isEmpty) {
+      throw new IllegalArgumentException("Strings must be of length > 0!")
+    }
+
+    val mismatches = s1.zip(s2).count { case (a, b) => a != b }
+    (s1.length - mismatches).toFloat / s1.length.toFloat
+  }
+}
+
+object FloatHammingSimilarity {
+  def apply(): FloatHammingSimilarity = {
+    new FloatHammingSimilarity()
   }
 }
